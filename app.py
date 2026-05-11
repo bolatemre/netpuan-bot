@@ -6,8 +6,8 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# Render Environment'dan veya koddan anahtarı al
-API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyCbpHHpgxl3gIOPAAYVdk1g13gwcfre03Y")
+# Render Environment'dan anahtarı çekiyoruz
+API_KEY = os.environ.get("GEMINI_API_KEY")
 
 @app.route('/analiz', methods=['GET'])
 def analiz_et():
@@ -15,11 +15,12 @@ def analiz_et():
     if not url: return jsonify({"hata": "Link eksik"}), 400
 
     try:
-        # Trendyol yorumları için örnek veri (Testi geçmek için)
-        comments = "Ürün harika, kargo hızlı, paketleme özenli."
+        # Trendyol/Pazaryeri verisi (Şimdilik test metni, API çalışınca burayı açarız)
+        comments = "Ürün çok kaliteli, kargo hızlı geldi, tavsiye ederim."
 
-        # EN STABİL MODEL: gemini-pro (v1 sürümü üzerinden)
-        gemini_url = f"https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={API_KEY}"
+        # DOĞRUDAN GOOGLE API ADRESİ (Kütüphane kullanmıyoruz!)
+        # v1 sürümü üzerinden en garantili model
+        gemini_url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={API_KEY}"
         
         payload = {
             "contents": [{
@@ -27,14 +28,20 @@ def analiz_et():
             }]
         }
         
+        # Google'a doğrudan POST isteği atıyoruz
         response = requests.post(gemini_url, json=payload, timeout=15)
         res_json = response.json()
 
+        # Yanıtı kontrol et
         if "candidates" in res_json:
             ai_text = res_json['candidates'][0]['content']['parts'][0]['text']
             return jsonify({"sonuc": ai_text})
         else:
-            return jsonify({"hata": "Google hala modeli bulamadı", "detay": res_json}), 500
+            # Hata varsa ne olduğunu açıkça yazdır
+            return jsonify({
+                "hata": "Google API Hatası",
+                "detay": res_json.get('error', {}).get('message', 'Bilinmeyen hata')
+            }), 500
 
     except Exception as e:
         return jsonify({"hata": str(e)}), 500
