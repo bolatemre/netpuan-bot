@@ -2,6 +2,7 @@ import os
 import cloudscraper
 import json
 import re
+import requests
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
@@ -12,15 +13,12 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 def trendyol_yorum_cek(url):
     try:
-        # Linkten ürün ID'sini bul
         match = re.search(r"p-(\d+)", url)
         if not match: return None
         
         product_id = match.group(1)
-        # Trendyol Yorum API Adresi
         api_url = f"https://public-mdc.trendyol.com/discovery-web-socialview-service/api/reviews/{product_id}?storefrontId=1&culture=tr-TR&order=5&searchValue=&showOnlyConfirmedReviews=true&page=0"
         
-        # Cloudscraper ile bot engelini aşıyoruz
         scraper = cloudscraper.create_scraper() 
         res = scraper.get(api_url, timeout=10)
         
@@ -42,13 +40,15 @@ def analiz_et():
 
     raw_comments = trendyol_yorum_cek(url)
     
-    # AI'ya gidecek mesaj
     if not raw_comments:
         raw_comments = "HATA: Yorumlar çekilemedi. Trendyol erişimi engelledi."
 
     try:
         groq_url = "https://api.groq.com/openai/v1/chat/completions"
-        headers_groq = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+        headers_groq = {
+            "Authorization": f"Bearer {GROQ_API_KEY}", 
+            "Content-Type": "application/json"
+        }
         
         payload = {
             "model": "llama-3.1-8b-instant",
@@ -62,7 +62,8 @@ def analiz_et():
             "response_format": {"type": "json_object"}
         }
         
-        response = scraper.post(groq_url, json=payload, headers=headers_groq) if 'scraper' in locals() else requests.post(groq_url, json=payload, headers=headers_groq)
+        # AI isteği için standart requests kullanıyoruz (daha stabil)
+        response = requests.post(groq_url, json=payload, headers=headers_groq, timeout=15)
         result = json.loads(response.json()['choices'][0]['message']['content'])
         return jsonify(result)
 
