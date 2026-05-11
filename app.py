@@ -25,6 +25,7 @@ def analiz_et():
     if "hepsiburada" in url: platform = "Hepsiburada"
     elif "pazarama" in url: platform = "Pazarama"
     elif "idefix" in url: platform = "Idefix"
+    elif "idefix" in url: platform = "N11"
 
     try:
         groq_url = "https://api.groq.com/openai/v1/chat/completions"
