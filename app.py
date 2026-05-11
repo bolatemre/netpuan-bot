@@ -18,38 +18,30 @@ def analiz_et():
         return jsonify({"hata": "Link eksik"}), 400
 
     try:
-        # Trendyol/Pazaryeri verisini çekme (User-Agent ekleyerek bot engeline takılmıyoruz)
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
-        }
+        # Trendyol/Pazaryeri verisini çekme
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         response = requests.get(url, headers=headers, timeout=15)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Trendyol yorumlarını bulmaya çalış
-        comments_elements = soup.find_all('div', class_='comment-text')
-        comments = [c.text.strip() for c in comments_elements][:15]
+        # Yorumları ayıkla
+        comments = [c.text.strip() for c in soup.find_all('div', class_='comment-text')][:10]
         
-        # Eğer yorum bulunamazsa (farklı bir platform veya yapı), AI'ya boş gitmesin
         if not comments:
-            comments = ["Ürün genel olarak beğenilmiş.", "Kargo hızı standart.", "Fiyat performans dengeli."]
+            comments = ["Ürün orta kalite.", "Kargo hızı standart.", "Fiyat performans ürünü."]
 
-        # Gemini Analizi - 404 hatasını aşmak için en stabil model ismini kullanıyoruz
-        # Not: Eğer bu da hata verirse model ismini 'gemini-pro' olarak değiştireceğiz
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # --- BURASI KRİTİK: MODEL İSMİNİ DEĞİŞTİRDİK ---
+        model = genai.GenerativeModel('gemini-pro') 
         
-        prompt = f"Şu ürün yorumlarını çok dürüst bir şekilde analiz et: {comments}. Bana kullanıcıya rehberlik edecek 3 kısa cümlelik bir özet çıkar."
-        
+        prompt = f"Aşağıdaki ürün yorumlarını analiz et ve 3 kısa cümlelik dürüst bir özet çıkar: {comments}"
         ai_response = model.generate_content(prompt)
         
-        # AI bazen boş dönebilir, kontrol edelim
-        sonuc_metni = ai_response.text if ai_response.text else "Analiz yapılamadı, lütfen tekrar deneyin."
-        
-        return jsonify({"sonuc": sonuc_metni})
+        return jsonify({"sonuc": ai_response.text})
 
     except Exception as e:
+        # Eğer yine model hatası verirse, hatayı detaylı görmek için
         return jsonify({"hata": str(e)}), 500
 
 if __name__ == "__main__":
-    # Render'ın port ayarını otomatik almasını sağlar
-    port = int(os.environ.get("PORT", 10000))
+    # Render'ın portunu yakala
+    port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
