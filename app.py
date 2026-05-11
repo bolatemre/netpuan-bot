@@ -9,7 +9,7 @@ app = Flask(__name__)
 CORS(app)
 
 # Senin API Key'in
-genai.configure(api_key="AQ.Ab8RN6JaFgLSFGdQ7GPljvVYmL7ukcHSQwyyQWiD_r4zHMNXhQ")
+genai.configure(api_key="AIzaSyCbpHHpgxl3gIOPAAYVdk1g13gwcfre03Y")
 
 @app.route('/analiz', methods=['GET'])
 def analiz_et():
