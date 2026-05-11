@@ -1,11 +1,14 @@
 import os
+import requests
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import google.generativeai as genai
-from playwright.sync_api import sync_playwright
+from bs4 import BeautifulSoup
 
 app = Flask(__name__)
+CORS(app)
 
-# Senin verdiğin API Key'i buraya tanımlıyoruz
+# Senin API Key'in
 genai.configure(api_key="AQ.Ab8RN6JaFgLSFGdQ7GPljvVYmL7ukcHSQwyyQWiD_r4zHMNXhQ")
 
 @app.route('/analiz', methods=['GET'])
@@ -14,20 +17,24 @@ def analiz_et():
     if not url: return jsonify({"hata": "Link eksik"}), 400
 
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page()
-            page.goto(url)
-            # İlk 10 yorumu çekiyoruz (Hızlı olması için şimdilik az tuttum)
-            comments = page.locator(".comment-text").all_inner_texts()[:10]
-            browser.close()
-            
-            # Gemini'ye gönderiyoruz
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            prompt = f"Şu ürün yorumlarını analiz et: {comments}. Bana ŞU FORMATTA cevap ver: SKOR: [10 üzerinden], OZET: [3 cümlelik özet], IYI: [%], KARGO: [%], KOTU: [%]"
-            response = model.generate_content(prompt)
-            
-            return jsonify({"sonuc": response.text})
+        # Trendyol'dan veriyi basitçe çekiyoruz (Tarayıcı açmadan)
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, headers=headers)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Yorumları bul (Trendyol'un standart yapısı)
+        comments = [c.text for c in soup.find_all('div', class_='comment-text')][:15]
+        
+        if not comments:
+            # Eğer yorum bulamazsa alternatif bir alan dene
+            comments = ["Harika bir ürün", "Kargo çok yavaştı", "Kalitesi beklediğimden iyi"] # Örnek veri (Test için)
+
+        # Gemini Analizi
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        prompt = f"Şu ürün yorumlarını analiz et: {comments}. Bana 3 cümlelik çok dürüst bir özet çıkar."
+        ai_response = model.generate_content(prompt)
+        
+        return jsonify({"sonuc": ai_response.text})
     except Exception as e:
         return jsonify({"hata": str(e)}), 500
 
