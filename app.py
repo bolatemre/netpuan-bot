@@ -29,10 +29,7 @@ def analiz_et():
             # Eğer yorum bulamazsa alternatif bir alan dene
             comments = ["Harika bir ürün", "Kargo çok yavaştı", "Kalitesi beklediğimden iyi"] # Örnek veri (Test için)
 
-        # Gemini Analizi
-       # Gemini Analizi (Model ismini tam yoluyla ve en güncel haliyle çağırıyoruz)
-        model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
-        prompt = f"Şu ürün yorumlarını analiz et: {comments}. Bana kullanıcıya yönelik 3 cümlelik dürüst bir özet çıkar."
+       model = genai.GenerativeModel('gemini-1.5-flash') # models/ ekini sildik, -latest ekini sildik
         ai_response = model.generate_content(prompt)
         
         return jsonify({"sonuc": ai_response.text})
