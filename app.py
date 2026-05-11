@@ -1,14 +1,45 @@
 import os
 import requests
 import json
+import re
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from bs4 import BeautifulSoup
 
 app = Flask(__name__)
 CORS(app)
 
+# Render Environment'dan Groq anahtarını çekiyoruz
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+
+def trendyol_yorum_cek(url):
+    try:
+        # Linkten ürün ID'sini bul (p-12345 kısmı)
+        match = re.search(r"p-(\d+)", url)
+        if not match:
+            return None
+        
+        product_id = match.group(1)
+        # Trendyol'un yorumları çektiği resmi API
+        api_url = f"https://public-mdc.trendyol.com/discovery-web-socialview-service/api/reviews/{product_id}?storefrontId=1&culture=tr-TR&order=5&searchValue=&showOnlyConfirmedReviews=true&page=0"
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        
+        res = requests.get(api_url, headers=headers, timeout=10)
+        data = res.json()
+        
+        # Sadece yorum metinlerini alıyoruz
+        comments = []
+        if 'content' in data:
+            for item in data['content']:
+                if 'comment' in item and item['comment']:
+                    comments.append(item['comment'])
+        
+        return " | ".join(comments[:20]) # İlk 20 yorumu birleştir
+    except Exception as e:
+        print(f"Veri çekme hatası: {e}")
+        return None
 
 @app.route('/analiz', methods=['GET'])
 def analiz_et():
@@ -16,26 +47,14 @@ def analiz_et():
     if not url: 
         return jsonify({"hata": "Link eksik"}), 400
 
+    # 1. Gerçek yorumları çek
+    raw_comments = trendyol_yorum_cek(url)
+    
+    # Eğer yorum gelmediyse AI'ya durumu bildir
+    if not raw_comments:
+        raw_comments = "HATA: Yorumlar çekilemedi. Lütfen kullanıcıya 'Yorumlar şu an okunamıyor' bilgisi ver."
+
     try:
-        # 1. Trendyol'dan Gerçek Veriyi Çekiyoruz
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
-        response = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Trendyol'un yorum başlıklarını veya metinlerini yakalıyoruz
-        # Not: Trendyol bazen bu class isimlerini değiştirir, en yaygın olanları ekledik
-        comment_elements = soup.find_all('div', class_='comment-text')
-        comments = [c.text.strip() for c in comment_elements][:15] # İlk 15 yorumu al
-
-        # Eğer yorum bulunamazsa boş gitmesin
-        if not comments:
-            comments_input = "Ürün yorumları bu sayfada doğrudan bulunamadı, genel bir değerlendirme yap."
-        else:
-            comments_input = " | ".join(comments)
-
-        # 2. Groq API ile Gerçek Analiz
         groq_url = "https://api.groq.com/openai/v1/chat/completions"
         headers_groq = {
             "Authorization": f"Bearer {GROQ_API_KEY}", 
@@ -47,17 +66,23 @@ def analiz_et():
             "messages": [
                 {
                     "role": "system", 
-                    "content": "Sen profesyonel bir analizörsün. Sana gelen gerçek kullanıcı yorumlarını oku ve SADECE şu JSON formatında dürüst bir puanlama yap: {'ozet': '...', 'puan': 0.0, 'olumlu': 0, 'kargo': 0, 'olumsuz': 0}"
+                    "content": """Sen dürüst ve tarafsız bir analizörsün. 
+                    Sana gelen yorumları oku. Eğer 'HATA' mesajı gelmişse puanları 0 yap ve özette hatayı belirt.
+                    Eğer yorumlar gelmişse; kargo, kalite ve memnuniyet oranlarını dürüstçe hesapla.
+                    Cevabını SADECE şu JSON formatında ver: 
+                    {"ozet": "...", "puan": 8.5, "olumlu": 85, "kargo": 90, "olumsuz": 10}"""
                 },
-                {"role": "user", "content": f"Şu gerçek yorumlara dayanarak dürüst ol: {comments_input}"}
+                {"role": "user", "content": f"Şu yorumları analiz et: {raw_comments}"}
             ],
             "response_format": {"type": "json_object"}
         }
         
-        res = requests.post(groq_url, json=payload, headers=headers_groq, timeout=10)
-        ai_data = json.loads(res.json()['choices'][0]['message']['content'])
-
-        return jsonify(ai_data)
+        response = requests.post(groq_url, json=payload, headers=headers_groq, timeout=10)
+        ai_response = response.json()
+        
+        # AI'dan gelen JSON metnini ayrıştır
+        result = json.loads(ai_response['choices'][0]['message']['content'])
+        return jsonify(result)
 
     except Exception as e:
         return jsonify({"hata": str(e)}), 500
