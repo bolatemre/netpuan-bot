@@ -6,7 +6,7 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# Render Environment'dan Groq anahtarını çekiyoruz
+# Groq Anahtarı
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 @app.route('/analiz', methods=['GET'])
@@ -15,7 +15,8 @@ def analiz_et():
     if not url: return jsonify({"hata": "Link eksik"}), 400
 
     try:
-        comments = "Ürün fiyatına göre çok kaliteli, paketleme harikaydı."
+        # Test verisi
+        comments = "Ürün harika, kargo çok hızlıydı, kesinlikle tavsiye ederim."
 
         groq_url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
@@ -23,8 +24,9 @@ def analiz_et():
             "Content-Type": "application/json"
         }
         
+        # MODEL İSMİNİ GÜNCELLEDİK: llama-3.1-8b-instant
         payload = {
-            "model": "llama3-8b-8192",
+            "model": "llama-3.1-8b-instant",
             "messages": [
                 {"role": "system", "content": "Sen dürüst bir analiz asistanısın. 3 kısa cümlelik özet çıkar."},
                 {"role": "user", "content": f"Analiz et: {comments}"}
@@ -38,8 +40,7 @@ def analiz_et():
             ai_text = res_json['choices'][0]['message']['content']
             return jsonify({"sonuc": ai_text})
         else:
-            # BURASI ÖNEMLİ: Hatanın gerçek sebebini ekrana basacak
-            error_msg = res_json.get('error', {}).get('message', 'Bilinmeyen Groq hatası')
+            error_msg = res_json.get('error', {}).get('message', 'Bilinmeyen hata')
             return jsonify({"hata": error_msg}), 500
 
     except Exception as e:
