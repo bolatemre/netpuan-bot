@@ -6,8 +6,8 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# Render'dan anahtarı çekiyoruz
-API_KEY = os.environ.get("GEMINI_API_KEY")
+# Render Environment'dan veya koddan anahtarı al
+API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyCbpHHpgxl3gIOPAAYVdk1g13gwcfre03Y")
 
 @app.route('/analiz', methods=['GET'])
 def analiz_et():
@@ -15,21 +15,26 @@ def analiz_et():
     if not url: return jsonify({"hata": "Link eksik"}), 400
 
     try:
-        # Kapı 1: v1 sürümü üzerinden Gemini 1.5 Flash dene
-        gemini_url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={API_KEY}"
+        # Trendyol yorumları için örnek veri (Testi geçmek için)
+        comments = "Ürün harika, kargo hızlı, paketleme özenli."
+
+        # EN STABİL MODEL: gemini-pro (v1 sürümü üzerinden)
+        gemini_url = f"https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={API_KEY}"
         
         payload = {
-            "contents": [{"parts": [{"text": "Yorumları 3 cümlede özetle: Ürün harika, kargo hızlı."}]}]
+            "contents": [{
+                "parts": [{"text": f"Şu ürün yorumlarını 3 kısa cümlede analiz et: {comments}"}]
+            }]
         }
         
-        response = requests.post(gemini_url, json=payload, timeout=10)
-        res_data = response.json()
+        response = requests.post(gemini_url, json=payload, timeout=15)
+        res_json = response.json()
 
-        if "candidates" in res_data:
-            return jsonify({"sonuc": res_data['candidates'][0]['content']['parts'][0]['text']})
-        
-        # Eğer yukarıdaki hata verirse, Kapı 2: Gemini Pro dene
-        return jsonify({"hata": "Model uyuşmazlığı", "detay": res_data}), 500
+        if "candidates" in res_json:
+            ai_text = res_json['candidates'][0]['content']['parts'][0]['text']
+            return jsonify({"sonuc": ai_text})
+        else:
+            return jsonify({"hata": "Google hala modeli bulamadı", "detay": res_json}), 500
 
     except Exception as e:
         return jsonify({"hata": str(e)}), 500
