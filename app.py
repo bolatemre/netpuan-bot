@@ -14,30 +14,35 @@ def analiz_et():
     url = request.args.get('url')
     if not url: return jsonify({"hata": "Link eksik"}), 400
 
+    product_name = url.split('/')[-1].replace('-', ' ').split('?')[0]
+    
+    # Platform tespiti
+    platform = "Trendyol"
+    if "hepsiburada" in url: platform = "Hepsiburada"
+    elif "pazarama" in url: platform = "Pazarama"
+    elif "idefix" in url: platform = "Idefix"
+
     try:
-        # Trendyol'un engeline takılmamak için yorumları 
-        # Yapay Zeka'nın kendi geniş veritabanından ve linkteki ipuçlarından tahmin etmesini isteyeceğiz.
-        # Bu yöntem %100 "Trendyol Engeli" yemez.
-        
         groq_url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
         
-        # Linkten ürün adını kabaca çıkaralım
-        product_name = url.split('/')[-1].replace('-', ' ').split('?')[0]
-
         payload = {
             "model": "llama-3.1-8b-instant",
             "messages": [
                 {
                     "role": "system", 
-                    "content": "Sen dünyanın en zeki e-ticaret uzmanısın. Sana verilen ürün linkini ve ürün adını incele. Bu ürünün Trendyol üzerindeki genel kullanıcı geri bildirimlerini, kronik sorunlarını ve kargo performansını genel internet verilerine dayanarak analiz et. SADECE JSON formatında cevap ver: {'ozet': '...', 'puan': 0.0, 'olumlu': 0, 'kargo': 0, 'olumsuz': 0}"
+                    "content": f"""Sen NetPuan AI analizörüsün. 
+                    Ürünü ve linkteki platformu ({platform}) analiz et.
+                    Verdiğin 'olumlu', 'kargo' ve 'olumsuz' yüzdelerinin TOPLAMI tam olarak %100 olmalıdır.
+                    Örnek: olumlu: 70, kargo: 20, olumsuz: 10.
+                    JSON formatı: {{'ozet': '...', 'puan': 0.0, 'olumlu': 0, 'kargo': 0, 'olumsuz': 0, 'platform': '{platform}'}}"""
                 },
-                {"role": "user", "content": f"Ürün Linki: {url}\nÜrün Adı: {product_name}\nLütfen bu ürünü analiz et."}
+                {"role": "user", "content": f"Ürün: {product_name}\nPlatform: {platform}\nLink: {url}"}
             ],
             "response_format": {"type": "json_object"}
         }
         
-        res = requests.post(groq_url, json=payload, headers=headers, timeout=15)
+        res = requests.post(groq_url, json=payload, headers=headers)
         ai_data = json.loads(res.json()['choices'][0]['message']['content'])
         
         return jsonify(ai_data)
