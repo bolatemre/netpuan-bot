@@ -6,8 +6,8 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# Render Environment'dan anahtarı çekiyoruz
-API_KEY = os.environ.get("GEMINI_API_KEY")
+# Groq Anahtarı
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 @app.route('/analiz', methods=['GET'])
 def analiz_et():
@@ -15,33 +15,33 @@ def analiz_et():
     if not url: return jsonify({"hata": "Link eksik"}), 400
 
     try:
-        # Trendyol/Pazaryeri verisi (Şimdilik test metni, API çalışınca burayı açarız)
-        comments = "Ürün çok kaliteli, kargo hızlı geldi, tavsiye ederim."
+        # Test yorumu
+        comments = "Ürün harika, kargo çok hızlıydı, kesinlikle tavsiye ederim."
 
-        # DOĞRUDAN GOOGLE API ADRESİ (Kütüphane kullanmıyoruz!)
-        # v1 sürümü üzerinden en garantili model
-        gemini_url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={API_KEY}"
+        # Groq API Bağlantısı (Llama 3 modeli ile - Işık hızında)
+        groq_url = "https://api.groq.com/openai/v1/chat/completions"
         
-        payload = {
-            "contents": [{
-                "parts": [{"text": f"Şu ürün yorumlarını 3 kısa cümlede analiz et: {comments}"}]
-            }]
+        headers = {
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
         }
         
-        # Google'a doğrudan POST isteği atıyoruz
-        response = requests.post(gemini_url, json=payload, timeout=15)
+        payload = {
+            "model": "llama3-8b-8192",
+            "messages": [
+                {"role": "system", "content": "Sen dürüst bir ürün analiz asistanısın. Yorumları 3 kısa cümlede özetle."},
+                {"role": "user", "content": f"Şu yorumları analiz et: {comments}"}
+            ]
+        }
+        
+        response = requests.post(groq_url, json=payload, headers=headers, timeout=10)
         res_json = response.json()
 
-        # Yanıtı kontrol et
-        if "candidates" in res_json:
-            ai_text = res_json['candidates'][0]['content']['parts'][0]['text']
+        if "choices" in res_json:
+            ai_text = res_json['choices'][0]['message']['content']
             return jsonify({"sonuc": ai_text})
         else:
-            # Hata varsa ne olduğunu açıkça yazdır
-            return jsonify({
-                "hata": "Google API Hatası",
-                "detay": res_json.get('error', {}).get('message', 'Bilinmeyen hata')
-            }), 500
+            return jsonify({"hata": "Groq hatası", "detay": res_json}), 500
 
     except Exception as e:
         return jsonify({"hata": str(e)}), 500
