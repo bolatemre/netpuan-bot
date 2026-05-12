@@ -9,51 +9,22 @@ app = Flask(__name__)
 CORS(app)
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-
-# PROFESYONEL İPUCU: Trendyol bloklarını aşmak için 'Proxy' kullanılması şarttır.
-# Eğer bir Proxy servisi alırsan buraya ekleyebilirsin.
-PROXIES = {
-    # "http": "http://username:password@proxy_host:port",
-    # "https": "http://username:password@proxy_host:port"
-}
+# Google'dan aldığın taze köprü URL'si
+GOOGLE_PROXY_URL = "https://script.google.com/macros/s/AKfycbxr7k2dRTUiOvnl4QvS0g3smitkYwNtGg09lM9WB-BAhtGKY0TBZOoWzTNZ0OqH1Ezg/exec"
 
 def get_trendyol_comments(p_id):
     try:
-        # Trendyol Mobil Uygulaması gibi davranan en üst düzey Header seti
-        headers = {
-            'User-Agent': 'TrendyolMobileApp/5.11.0 (iPhone; iOS 17.4; Scale/3.00)',
-            'Accept': 'application/json',
-            'Host': 'public-mdc.trendyol.com',
-            'X-Mobile-Platform': 'ios',
-            'Accept-Language': 'tr-TR'
-        }
-        api_url = f"https://public-mdc.trendyol.com/discovery-web-socialgw-service/api/reviews/{p_id}?page=0&size=50"
-        
-        # İstek gönderiliyor (Proxy varsa proxies=PROXIES eklenir)
-        res = requests.get(api_url, headers=headers, timeout=12)
+        # Trendyol API adresi
+        target_url = f"https://public-mdc.trendyol.com/discovery-web-socialgw-service/api/reviews/{p_id}?page=0&size=50"
+        # Google köprüsü üzerinden istek atıyoruz
+        res = requests.get(f"{GOOGLE_PROXY_URL}?url={requests.utils.quote(target_url)}", timeout=20)
         
         if res.status_code == 200:
             data = res.json()
-            comments = [r['comment'] for r in data.get('reviews', []) if 'comment' in r]
-            return comments
+            return [r['comment'] for r in data.get('reviews', []) if 'comment' in r]
         return []
     except Exception as e:
-        print(f"Trendyol Hata: {e}")
-        return []
-
-def get_hepsiburada_comments(sku):
-    try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Accept': 'application/json'
-        }
-        api_url = f"https://customer-reviews-v2.hepsiburada.com/api/v1/product-reviews/{sku}/reviews?sort=Standard&page=1&size=50"
-        res = requests.get(api_url, headers=headers, timeout=12)
-        if res.status_code == 200:
-            return [r['review'] for r in res.json().get('data', {}).get('reviews', []) if 'review' in r]
-        return []
-    except Exception as e:
-        print(f"HB Hata: {e}")
+        print(f"Köprü Hatası: {e}")
         return []
 
 @app.route('/analiz', methods=['GET'])
@@ -61,25 +32,16 @@ def analiz_et():
     query = request.args.get('url')
     if not query: return jsonify({"hata": "Link veya isim eksik"}), 400
 
-    platform_counts = {"Trendyol": 0, "Hepsiburada": 0}
     all_comments = []
-    product_name = "Ürün"
     platform_label = "Genel"
+    product_name = "Ürün"
 
-    if "http" in query:
-        if "trendyol.com" in query:
-            platform_label = "Trendyol"
-            id_match = re.search(r'p-(\d+)', query)
-            if id_match:
-                comments = get_trendyol_comments(id_match.group(1))
-                all_comments.extend(comments)
-                platform_counts["Trendyol"] = len(comments)
-        elif "hepsiburada.com" in query:
-            platform_label = "Hepsiburada"
-            sku = query.split('-')[-1].split('?')[0]
-            comments = get_hepsiburada_comments(sku)
-            all_comments.extend(comments)
-            platform_counts["Hepsiburada"] = len(comments)
+    # VERİ ÇEKME
+    if "http" in query and "trendyol.com" in query:
+        platform_label = "Trendyol"
+        id_match = re.search(r'p-(\d+)', query)
+        if id_match:
+            all_comments = get_trendyol_comments(id_match.group(1))
         
         product_raw = query.split('/')[-1].split('?')[0]
         product_name = ' '.join([w for w in product_raw.split('-') if not w.startswith('p') and not w.isdigit()]).title()
@@ -89,14 +51,18 @@ def analiz_et():
     total_count = len(all_comments)
     comment_text = " | ".join(all_comments)
 
-    # --- PROFESYONEL AI TALİMATI ---
+    # AI İÇİN ÖZEL TALİMATLAR
     prompt_rules = f"""
-    Sen NetPuan Ticari Analiz Uzmanısın. 
-    1. KATEGORİ: Ürünün ({product_name}) kategorisini KESİN doğru belirle. Yanlış kategoriye ait özellik yazma.
-    2. VERİ DURUMU: Trendyol'dan {platform_counts['Trendyol']}, HB'den {platform_counts['Hepsiburada']} yorum geldi.
-    3. STRATEJİ: Eğer toplam veri 0 ise, halüsinasyon görme. Sadece "{product_name} için pazar yerlerinden canlı veri alınamadı, genel kategori standartlarına göre değerlendiriliyor" de.
-    4. RAKİP: Sadece aynı kategoriden amiral gemisi bir rakip öner.
-    5. RAPOR: 'istatistik_raporu' alanına hangi platformdan kaç yorum çekildiğini net yaz.
+    Sen NetPuan Pro Analizörüsün.
+    ÜRÜN: {product_name}
+    GELEN VERİ: {total_count} adet gerçek müşteri yorumu çekildi.
+    
+    KURALLAR:
+    1. KATEGORİ: Önce ürünün kategorisini KESİN doğru belirle (Örn: Koşu Bandı mı, Robot Süpürge mi?).
+    2. DOĞRULUK: Eğer veri 0 ise uydurma özellik yazma. "{product_name} için pazar yerinden veri çekilemedi" uyarısı yap.
+    3. ANALİZ: Yorumlar varsa; kronik sorunları, kargo şikayetlerini ve performans detaylarını UZUNCA yaz.
+    4. RAKİP: Sadece aynı kategoriden (Eğer ürün Robot Süpürge ise başka bir robot süpürge) lider bir model öner.
+    5. RAPOR: 'istatistik_raporu' alanına "Google Proxy aracılığıyla {total_count} adet yorum analiz edildi" yaz.
     """
 
     try:
@@ -105,13 +71,20 @@ def analiz_et():
             "model": "llama-3.1-8b-instant",
             "messages": [
                 {"role": "system", "content": prompt_rules},
-                {"role": "user", "content": f"Yorumlar: {comment_text[:4000]}. JSON formatında rapor ver."}
+                {"role": "user", "content": f"Yorumlar: {comment_text[:4000]}. JSON formatında rapor sun."}
             ],
             "response_format": {"type": "json_object"}
         }
         res = requests.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers, timeout=25)
         ai_data = json.loads(res.json()['choices'][0]['message']['content'])
         
+        # Matematik düzeltme
+        total = ai_data.get('olumlu', 0) + ai_data.get('kargo', 0) + ai_data.get('olumsuz', 0)
+        if total != 100 and total > 0:
+            ai_data['olumlu'] = int((ai_data['olumlu'] / total) * 100)
+            ai_data['kargo'] = int((ai_data['kargo'] / total) * 100)
+            ai_data['olumsuz'] = 100 - (ai_data['olumlu'] + ai_data['kargo'])
+
         ai_data['platform'] = platform_label
         ai_data['urun_adi'] = product_name
         return jsonify(ai_data)
