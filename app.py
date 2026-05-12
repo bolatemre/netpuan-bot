@@ -17,7 +17,6 @@ def get_trendyol_comments(p_id):
         res = requests.get(f"{GOOGLE_PROXY_URL}?url={requests.utils.quote(api_link)}", timeout=25)
         if res.status_code == 200:
             data = res.json()
-            # Trendyol bazen boş liste döner, kontrol et
             return [r['comment'] for r in data.get('reviews', []) if 'comment' in r]
         return []
     except: return []
@@ -31,7 +30,6 @@ def analiz_et():
     platform_label = "Genel"
     product_name = ""
 
-    # 1. ADIM: VERİ ÇEKMEYİ DENE
     if "http" in query and "trendyol.com" in query:
         platform_label = "Trendyol"
         id_match = re.search(r'p-(\d+)', query)
@@ -44,25 +42,24 @@ def analiz_et():
 
     total_count = len(all_comments)
     
-    # 2. ADIM: AI'YA DURUMU NET ANLAT (MODERN PROMPT)
-    # Eğer yorum yoksa AI'ya "Genel Piyasa Verisini Kullan" diyoruz
-    if total_count > 0:
-        data_source = f"Şu an çekilen {total_count} adet GERÇEK müşteri yorumunu analiz et."
-        comment_payload = " | ".join(all_comments)[:4000]
-    else:
-        data_source = f"Canlı yorum çekilemedi. {product_name} hakkındaki GENEL PİYASA BİLGİNİ VE KRONİK SORUNLARI kullanarak analiz yap."
-        comment_payload = "Veri yok, genel bilgi kullan."
+    # Veri kaynağına göre AI'yı yönlendir
+    source_desc = f"{total_count} adet gerçek yorum çekildi." if total_count > 0 else "Canlı veri yok, genel uzmanlık bilginle analiz yap."
+    comment_payload = " | ".join(all_comments)[:4000] if total_count > 0 else "Piyasa verilerini kullan."
 
     prompt_rules = f"""
-    GÖREV: {product_name} için profesyonel analiz raporu hazırla.
-    KAYNAK: {data_source}
+    Sen NetPuan Pro Analizörüsün. Ürün: {product_name}. Kategori tespiti yap (örn: Robot Süpürge).
     
-    KESİN KURALLAR:
-    1. KATEGORİ: Önce ürünün kategorisini belirle. Robot süpürgeye alakasız özellik yazma.
-    2. PUANLAMA: Olumlu yüzdeyle puan uyumlu olsun (%85 olumlu = 8.5 puan). Toplam %100 olsun.
-    3. ÖZET: En az 150 kelime. Ürünün donanımı, yazılımı ve rakip avantajlarını detaylandır.
-    4. RAKİP: Sadece AYNI KATEGORİDEN (örn: başka bir robot süpürge) lider model öner.
-    5. RAPOR: 'istatistik_raporu' alanına '{total_count} canlı yorum + piyasa verileri harmanlandı' yaz.
+    JSON FORMATI KESİNLİKLE ŞU OLMALIDIR (ANAHTARLARI DEĞİŞTİRME):
+    {{
+      "puan": 0.0,
+      "ozet": "En az 150 kelime detaylı analiz...",
+      "olumlu": 80,
+      "kargo": 10,
+      "olumsuz": 10,
+      "istatistik_raporu": "{source_desc}",
+      "en_sik_sikayet": "Varsa kronik sorun...",
+      "en_iyi_alternatif": "Aynı kategoriden rakip model..."
+    }}
     """
 
     try:
@@ -71,7 +68,7 @@ def analiz_et():
             "model": "llama-3.1-8b-instant",
             "messages": [
                 {"role": "system", "content": prompt_rules},
-                {"role": "user", "content": f"Ürün: {product_name}. Veriler: {comment_payload}. JSON Raporu sun."}
+                {"role": "user", "content": f"Veriler: {comment_payload}. JSON Raporu sun."}
             ],
             "response_format": {"type": "json_object"}
         }
@@ -79,11 +76,11 @@ def analiz_et():
         ai_data = json.loads(res.json()['choices'][0]['message']['content'])
         
         # Matematiksel Doğrulama
-        total = ai_data.get('olumlu', 0) + ai_data.get('kargo', 0) + ai_data.get('olumsuz', 0)
+        total = int(ai_data.get('olumlu', 0)) + int(ai_data.get('kargo', 0)) + int(ai_data.get('olumsuz', 0))
         if total != 100 and total > 0:
-            ai_data['olumlu'] = int((ai_data['olumlu'] / total) * 100)
-            ai_data['kargo'] = int((ai_data['kargo'] / total) * 100)
-            ai_data['olumsuz'] = 100 - (ai_data['olumlu'] + ai_data['kargo'])
+            ai_data['olumlu'] = int((int(ai_data['olumlu']) / total) * 100)
+            ai_data['kargo'] = int((int(ai_data['kargo']) / total) * 100)
+            ai_data['olumsuz'] = 100 - (int(ai_data['olumlu']) + int(ai_data['kargo']))
 
         ai_data['platform'] = platform_label
         ai_data['urun_adi'] = product_name
