@@ -9,18 +9,20 @@ app = Flask(__name__)
 CORS(app)
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-# Google'dan aldığın taze köprü URL'si
-GOOGLE_PROXY_URL = "https://script.google.com/macros/s/AKfycbxr7k2dRTUiOvnl4QvS0g3smitkYwNtGg09lM9WB-BAhtGKY0TBZOoWzTNZ0OqH1Ezg/exec"
+# Yeni Google Apps Script URL'n
+GOOGLE_PROXY_URL = "https://script.google.com/macros/s/AKfycbzWIyrBeTQWP5XA-kkoOhX_VTwO8XlYW43hift0l8_SNG0Ig2utlbA4TbBGx2CY5rS3/exec"
 
 def get_trendyol_comments(p_id):
     try:
-        # Trendyol API adresi
-        target_url = f"https://public-mdc.trendyol.com/discovery-web-socialgw-service/api/reviews/{p_id}?page=0&size=50"
-        # Google köprüsü üzerinden istek atıyoruz
-        res = requests.get(f"{GOOGLE_PROXY_URL}?url={requests.utils.quote(target_url)}", timeout=20)
+        # Trendyol API linki
+        api_link = f"https://public-mdc.trendyol.com/discovery-web-socialgw-service/api/reviews/{p_id}?page=0&size=50"
+        
+        # Google üzerinden güvenli istek
+        res = requests.get(f"{GOOGLE_PROXY_URL}?url={requests.utils.quote(api_link)}", timeout=20)
         
         if res.status_code == 200:
             data = res.json()
+            # Yorumları ayıkla
             return [r['comment'] for r in data.get('reviews', []) if 'comment' in r]
         return []
     except Exception as e:
@@ -36,13 +38,14 @@ def analiz_et():
     platform_label = "Genel"
     product_name = "Ürün"
 
-    # VERİ ÇEKME
+    # VERİ ÇEKME SÜRECİ
     if "http" in query and "trendyol.com" in query:
         platform_label = "Trendyol"
         id_match = re.search(r'p-(\d+)', query)
         if id_match:
             all_comments = get_trendyol_comments(id_match.group(1))
         
+        # Ürün ismini linkten temizleme
         product_raw = query.split('/')[-1].split('?')[0]
         product_name = ' '.join([w for w in product_raw.split('-') if not w.startswith('p') and not w.isdigit()]).title()
     else:
@@ -51,18 +54,15 @@ def analiz_et():
     total_count = len(all_comments)
     comment_text = " | ".join(all_comments)
 
-    # AI İÇİN ÖZEL TALİMATLAR
+    # AI TALİMATLARI (PROFESYONEL VE DOĞRU KATEGORİ)
     prompt_rules = f"""
-    Sen NetPuan Pro Analizörüsün.
-    ÜRÜN: {product_name}
-    GELEN VERİ: {total_count} adet gerçek müşteri yorumu çekildi.
-    
-    KURALLAR:
-    1. KATEGORİ: Önce ürünün kategorisini KESİN doğru belirle (Örn: Koşu Bandı mı, Robot Süpürge mi?).
-    2. DOĞRULUK: Eğer veri 0 ise uydurma özellik yazma. "{product_name} için pazar yerinden veri çekilemedi" uyarısı yap.
-    3. ANALİZ: Yorumlar varsa; kronik sorunları, kargo şikayetlerini ve performans detaylarını UZUNCA yaz.
-    4. RAKİP: Sadece aynı kategoriden (Eğer ürün Robot Süpürge ise başka bir robot süpürge) lider bir model öner.
-    5. RAPOR: 'istatistik_raporu' alanına "Google Proxy aracılığıyla {total_count} adet yorum analiz edildi" yaz.
+    Sen NetPuan Pro Analizörüsün. Ürün: {product_name}.
+    KURAL: Önce ürünün kategorisini belirle. Asla robot süpürgeye koşu bandı özelliği yazma.
+    VERİ: {total_count} adet gerçek yorum çekildi.
+    1. Eğer veri 0 ise uydurma, 'Canlı yorum çekilemedi' de.
+    2. 'ozet' kısmını uzun ve teknik detaylı tut.
+    3. 'en_iyi_alternatif' kısmına sadece AYNI KATEGORİDEN güçlü bir rakip öner.
+    4. 'istatistik_raporu' alanına 'Google Proxy üzerinden {total_count} yorum analiz edildi' yaz.
     """
 
     try:
@@ -78,7 +78,7 @@ def analiz_et():
         res = requests.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers, timeout=25)
         ai_data = json.loads(res.json()['choices'][0]['message']['content'])
         
-        # Matematik düzeltme
+        # Matematiksel dengeleme
         total = ai_data.get('olumlu', 0) + ai_data.get('kargo', 0) + ai_data.get('olumsuz', 0)
         if total != 100 and total > 0:
             ai_data['olumlu'] = int((ai_data['olumlu'] / total) * 100)
