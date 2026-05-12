@@ -28,7 +28,6 @@ def analiz_et():
     product_name = "Ürün"
     platform = "Genel"
 
-    # Linkten veya metinden ürün ismini ayıkla
     if "http" in query:
         id_match = re.search(r'p-(\d+)', query)
         if "trendyol.com" in query:
@@ -39,34 +38,42 @@ def analiz_et():
     else:
         product_name = query.title()
 
-    comment_text = " | ".join(all_comments) if all_comments else "Canlı veri yok."
+    comment_text = " | ".join(all_comments) if all_comments else "Canlı veri yok, genel uzmanlık bilginle yaz."
 
-    # --- MATEMATİKSEL VE KATEGORİK TALİMATLAR ---
+    # --- UZUN ANALİZ VE KATEGORİK DERİNLİK TALİMATLARI ---
     prompt_instructions = f"""
-    SİSTEM KURALLARI:
-    1. ÜRÜN TANIMA: Önce '{product_name}' ürününün hangi kategoriye (örn: Robot Süpürge, Akıllı Saat) ait olduğunu belirle. 
-    2. KATEGORİ LİDERİ: Bu kategorideki (Türkiye piyasasında) en yüksek puanlı, sorunsuz 'Amiral Gemisi' ürünü 'en_iyi_alternatif' olarak öner.
-    3. MATEMATİK: 'olumlu' + 'kargo' + 'olumsuz' toplamı HER ZAMAN TAM 100 olmalıdır. Saçma sapan rakamlar verme.
-    4. PUAN UYUMU: Puan (10 üzerinden), olumlu yüzdesiyle paralel olmalı. %90 olumluya 9.0, %50 olumluya 5.0 puan ver.
-    5. DETAY: 'ozet' kısmında kategorik özelliklere değin (örn robot süpürge ise emiş gücü, haritalama gibi).
+    ANALİZ KURALLARI (MÜŞTERİ ODAKLI):
+    1. 'ozet' ALANINI ÇOK UZUN TUT: En az 150-200 kelime civarında, detaylı bir inceleme yazısı hazırla. 
+    2. KATEGORİ ODAKLI OL: Eğer bu bir robot süpürge ise; emiş gücü, lidar sensör başarısı ve paspaslama gibi teknik detaylara gir. Kulaklıksa; bas/tiz dengesi ve ANC kalitesine değin.
+    3. YORUM SENTEZİ: Kullanıcıların en çok dert yandığı veya en çok övdüğü teknik detayları 'Derin Analiz Özetinde' mutlaka belirt.
+    4. KATEGORİ LİDERİ: 'en_iyi_alternatif' kısmında bu ürünün kategorisindeki en sağlam rakibi nedenleriyle öner.
+    5. MATEMATİK: 'olumlu' + 'kargo' + 'olumsuz' toplamı tam 100 olmalı. Puan, olumlu oranıyla (10 üzerinden) paralel olmalı.
     """
 
     try:
         headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
         payload = {
-            "model": "llama-3.1-8b-instant",
+            "model": "llama-3.1-70b-versatile", # Daha uzun ve zeki cevaplar için 70B'ye geri çektik
             "messages": [
-                {"role": "system", "content": f"Sen NetPuan Pro Analizörüsün. {prompt_instructions}"},
-                {"role": "user", "content": f"Ürün: {product_name}. Veriler: {comment_text[:4000]}. JSON format: {{'ozet': '...', 'puan': 0.0, 'olumlu': 0, 'kargo': 0, 'olumsuz': 0, 'istatistik_raporu': '...', 'en_sik_sikayet': '...', 'en_iyi_alternatif': '...'}}"}
+                {"role": "system", "content": f"Sen NetPuan Pro Üst Düzey Analizörüsün. {prompt_instructions}"},
+                {"role": "user", "content": f"Ürün: {product_name}. Yorum Verileri: {comment_text[:4500]}. Detaylı bir JSON raporu sun."}
             ],
             "response_format": {"type": "json_object"}
         }
         
         res = requests.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers, timeout=25)
-        ai_data = json.loads(res.json()['choices'][0]['message']['content'])
+        res_data = res.json()
+
+        # Fallback (70B hata verirse 8B'ye düş)
+        if 'choices' not in res_data:
+            payload["model"] = "llama-3.1-8b-instant"
+            res = requests.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers, timeout=15)
+            res_data = res.json()
+
+        ai_data = json.loads(res_data['choices'][0]['message']['content'])
         
-        # Yüzdeliklerin toplamını kontrol et ve gerekirse düzelt (Matematiksel Sağlamlaştırma)
-        total = ai_data['olumlu'] + ai_data['kargo'] + ai_data['olumsuz']
+        # Matematiksel Düzeltme
+        total = ai_data.get('olumlu', 0) + ai_data.get('kargo', 0) + ai_data.get('olumsuz', 0)
         if total != 100 and total > 0:
             ai_data['olumlu'] = int((ai_data['olumlu'] / total) * 100)
             ai_data['kargo'] = int((ai_data['kargo'] / total) * 100)
@@ -75,6 +82,7 @@ def analiz_et():
         ai_data['platform'] = platform
         ai_data['urun_adi'] = product_name
         return jsonify(ai_data)
+
     except Exception as e:
         return jsonify({"hata": str(e)}), 500
 
