@@ -10,99 +10,86 @@ CORS(app)
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
-# --- PLATFORM VERİ ÇEKİCİLERİ ---
+# --- GELİŞMİŞ VERİ TOPLAMA FONKSİYONLARI ---
 
-def get_pazarama_data(url):
+def get_trendyol_comments(p_id):
     try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        requests.get(url, headers=headers, timeout=5)
-        return "Pazarama: Kullanıcılar genelde kampanya avantajları ve güvenilir gönderimden memnun."
-    except: return ""
+        api_url = f"https://public-mdc.trendyol.com/discovery-web-socialgw-service/api/reviews/{p_id}?page=0&size=30"
+        res = requests.get(api_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=7)
+        return [r['comment'] for r in res.json().get('reviews', []) if 'comment' in r]
+    except: return []
 
-def get_idefix_data(url):
+def get_hepsiburada_comments(sku):
     try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        requests.get(url, headers=headers, timeout=5)
-        return "Idefix: Müşteriler paketleme kalitesi ve teknik destekten olumlu bahsetmiş."
-    except: return ""
+        # SKU üzerinden HB yorumlarını çekme
+        api_url = f"https://customer-reviews-v2.hepsiburada.com/api/v1/product-reviews/{sku}/reviews?sort=Standard&page=1&size=30"
+        res = requests.get(api_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=7)
+        return [r['review'] for r in res.json().get('data', {}).get('reviews', []) if 'review' in r]
+    except: return []
 
-def get_trendyol_data(url):
-    try:
-        content_id = re.search(r'p-(\d+)', url).group(1)
-        api_url = f"https://public-mdc.trendyol.com/discovery-web-socialgw-service/api/reviews/{content_id}?page=0&size=20"
-        res = requests.get(api_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=8)
-        return " | ".join([r['comment'] for r in res.json().get('reviews', []) if 'comment' in r])
-    except: return ""
-
-def get_hepsiburada_data(url):
-    try:
-        sku = url.split('-')[-1].split('?')[0]
-        api_url = f"https://customer-reviews-v2.hepsiburada.com/api/v1/product-reviews/{sku}/reviews?sort=Standard&page=1&size=20"
-        res = requests.get(api_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=8)
-        return " | ".join([r['review'] for r in res.json().get('data', {}).get('reviews', []) if 'review' in r])
-    except: return ""
-
-# --- ANA ANALİZ SERVİSİ ---
+# --- ANA ANALİZ MOTORU ---
 
 @app.route('/analiz', methods=['GET'])
 def analiz_et():
     query = request.args.get('url')
     if not query: return jsonify({"hata": "Link veya isim eksik"}), 400
 
-    platform = "Genel Pazaryeri"
-    real_comments = ""
+    all_comments = []
     product_name = ""
-
-    if query.startswith("http"):
-        url = query
-        if "trendyol.com" in url:
-            platform = "Trendyol"; real_comments = get_trendyol_data(url)
-        elif "hepsiburada.com" in url:
-            platform = "Hepsiburada"; real_comments = get_hepsiburada_data(url)
-        elif "pazarama.com" in url:
-            platform = "Pazarama"; real_comments = get_pazarama_data(url)
-        elif "idefix.com" in url:
-            platform = "Idefix"; real_comments = get_idefix_data(url)
-        elif "n11.com" in url:
-            platform = "N11"; real_comments = "N11 yorumları: Kullanıcılar kupon ve mağaza puanlarına odaklanmış."
-        
-        # Linkten isim ayıklama
-        product_raw = url.split('/')[-1].split('?')[0]
-        product_parts = [w for w in product_raw.split('-') if not w.startswith('p') and not w.isdigit()]
-        product_name = ' '.join(product_parts).title()
-    else:
-        product_name = query.title()
-
-    # --- PUANLAMA AYARI (PROMPT) ---
-    system_msg = f"Sen NetPuan'ın akıllı ve dürüst analizörüsün. Ürün: {product_name} / Platform: {platform}."
     
-    # AI'ya verilen gizli talimat
-    ai_rules = """
-    ANALİZ KURALLARI:
-    1. Pazaryeri puanları (4.5/5 gibi) genelde kargo hızıyla şişer. Sen ürünün kendisine odaklan.
-    2. Ürün kaliteliyse ve yorumlar iyiyse 8.0 - 9.5 arası dürüst bir puan ver.
-    3. Ufak tefek sorunlar (geç kargo, basit paketleme hatası) varsa 7.0 - 8.0 bandına çek.
-    4. Ürün kronik arızalıysa veya 'anlatıldığı gibi değil' yorumu çoksa 6.0 altına düş.
-    5. 'olumlu', 'kargo', 'olumsuz' toplamı tam %100 olmalı.
+    # 1. ADIM: ANA KAYNAKTAN VERİ ÇEK VE İSİM BUL
+    if "trendyol.com" in query:
+        p_id = re.search(r'p-(\d+)', query).group(1)
+        all_comments.extend(get_trendyol_comments(p_id))
+        product_raw = query.split('/')[-1].split('?')[0]
+        product_name = ' '.join([w for w in product_raw.split('-') if not w.startswith('p') and not w.isdigit()]).title()
+        
+        # HARMANLAMA (Trendyol linki varken Hepsiburada'da da "aynı" SKU'yu bulmaya çalışır)
+        # Gerçek bir sistemde burada ürün ismiyle HB'de arama yapan bir fonksiyon çalışır.
+        # Şimdilik ana veriye odaklanıp istatistik raporunu güçlendiriyoruz.
+
+    elif "hepsiburada.com" in query:
+        sku = query.split('-')[-1].split('?')[0]
+        all_comments.extend(get_hepsiburada_comments(sku))
+        product_name = "Ürün Analizi"
+
+    # 2. ADIM: PROFESYONEL ANALİZ VE SAYISAL RAPOR
+    comment_text = " | ".join(all_comments)
+    
+    system_msg = f"Sen NetPuan Veri Analiz Uzmanısın. Ürün: {product_name}."
+    
+    # AI'ya sayısal rapor zorunluluğu getiriyoruz
+    user_msg = f"""
+    Aşağıdaki yorumları çok titiz bir şekilde analiz et. 
+    Sana verilen yorumları tek tek oku ve şu formatta bir 'istatistik_raporu' oluştur:
+    
+    GÖREVLER:
+    1. Kaç kişi kargodan şikayet etmiş? (Tam sayı ver)
+    2. Kaç kişi ürünün kalitesini/performansını övmüş? (Tam sayı ver)
+    3. Kaç kişi iade veya kusurlu ürün bildirmiş? (Tam sayı ver)
+    4. Ürünün en çok eleştirilen noktası nedir?
+    
+    PUANLAMA: 10 üzerinden çok dürüst yap. 
+    
+    YORUMLAR:
+    {comment_text[:4500]}
     """
 
-    if real_comments and len(real_comments) > 30:
-        user_msg = f"{ai_rules}\nŞu GERÇEK yorumları analiz et ve manipülasyonu temizle:\n{real_comments[:3000]}"
-    else:
-        user_msg = f"{ai_rules}\nBu ürünü ({product_name}) piyasadaki genel kronik sorunlar ve müşteri tecrübelerine göre dürüstçe analiz et."
-
     try:
-        headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
         payload = {
-            "model": "llama-3.1-8b-instant",
+            "model": "llama-3.1-70b-versatile", # Daha güçlü model, daha iyi sayar
             "messages": [
-                {"role": "system", "content": system_msg + "\nJSON format: {'ozet': '...', 'puan': 0.0, 'olumlu': 0, 'kargo': 0, 'olumsuz': 0, 'platform': '...', 'urun_adi': '...'}"},
+                {
+                    "role": "system", 
+                    "content": system_msg + "\nJSON formatında dön: {'ozet': '...', 'puan': 0.0, 'olumlu': 0, 'kargo': 0, 'olumsuz': 0, 'istatistik_raporu': '12 kişi kargo sorunu, 25 kişi kalite onayı bildirdi', 'en_cok_konusulan': 'Batarya ömrü'}"
+                },
                 {"role": "user", "content": user_msg}
             ],
             "response_format": {"type": "json_object"}
         }
         
-        res = requests.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers, timeout=15)
+        headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+        res = requests.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers, timeout=25)
         ai_data = json.loads(res.json()['choices'][0]['message']['content'])
         
         return jsonify(ai_data)
