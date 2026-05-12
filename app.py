@@ -60,7 +60,7 @@ def analiz_et():
     try:
         headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
         system_msg = f"Sen NetPuan Veri Analiz Uzmanısın. Ürün: {product_name}."
-        user_msg = f"Aşağıdaki {total_count} adet gerçek yorumu analiz et. Kaç kişi kargo, kaç kişi kalite dedi say. JSON format: {{'ozet': '...', 'puan': 0.0, 'olumlu': 0, 'kargo': 0, 'olumsuz': 0, 'istatistik_raporu': '...', 'en_sik_sikayet': '...'}}\n\nYORUMLAR: {comment_text[:4500]}"
+        user_msg = f"Aşağıdaki {total_count} adet gerçek yorumu analiz et. JSON formatında dön: {{'ozet': '...', 'puan': 0.0, 'olumlu': 0, 'kargo': 0, 'olumsuz': 0, 'istatistik_raporu': '...', 'en_sik_sikayet': '...', 'urun_adi': '{product_name}'}}\n\nYORUMLAR: {comment_text[:4500]}"
         
         payload = {
             "model": "llama-3.1-70b-versatile",
@@ -79,7 +79,13 @@ def analiz_et():
             res = requests.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers, timeout=15)
             res_data = res.json()
 
-        ai_data = json.loads(res_data['choices'][0]['message']['content'])
+        # JSON Temizliği ve Veri Birleştirme
+        ai_content = res_data['choices'][0]['message']['content']
+        ai_data = json.loads(ai_content)
+        
+        # JS'nin beklediği 'platform' verisini AI çıktısına ekliyoruz
+        ai_data['platform'] = platform
+        
         return jsonify(ai_data)
 
     except Exception as e:
